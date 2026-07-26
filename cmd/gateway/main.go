@@ -3,13 +3,17 @@ package main
 import (
 	"flag"
 	"log"
+	"net/http"
 
+	"github.com/fares7elsadek/Limitry/internal/checkapi"
 	"github.com/fares7elsadek/Limitry/internal/config"
+	"github.com/fares7elsadek/Limitry/internal/limiter"
+	"github.com/fares7elsadek/Limitry/internal/proxy"
 )
 
 func main() {
 
-	configPath := flag.String("config","config.yaml","path to config file")
+	configPath := flag.String("config", "config.yaml", "path to config file")
 	flag.Parse()
 
 	cfg, err := config.Load(*configPath)
@@ -17,26 +21,31 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
-	log.Printf("loaded config: mode=%s redis=%s routes=%d",
-		cfg.Mode, cfg.Redis.Addr, len(cfg.Routes))
+	engine, err := limiter.NewEngine(cfg)
+	if err != nil {
+		log.Fatalf("failed to connect to redis: %v", err)
+	}
+	log.Printf("connected to redis at %s", cfg.Redis.Addr)
 
+	var handler http.Handler
 	switch cfg.Mode {
 		case "proxy":
-			log.Printf("starting in PROXY mode, forwarding to %s", cfg.Backend.URL)
-			runProxyMode(cfg)
+			handler, err = proxy.NewHandler(cfg.Backend.URL, engine)
+			if err != nil {
+				log.Fatalf("failed to set up proxy: %v", err)
+			}
+			log.Printf("starting in PROXY mode → forwarding to %s", cfg.Backend.URL)
 		case "check":
-			log.Println("starting in CHECK mode, decision-only endpoint")
-			runCheckMode(cfg)
+			handler = checkapi.NewHandler(engine)
+			log.Println("starting in CHECK mode → POST /check")
+		default:
+			log.Fatalf("unknown mode: %s", cfg.Mode)
+	}
+
+	log.Println("listening on :8080")
+	if err := http.ListenAndServe(":8080", handler); err != nil {
+		log.Fatal(err)
 	}
 
 }
 
-// placeholder — we'll build this out with httputil.ReverseProxy next
-func runProxyMode(cfg *config.Config) {
-	// TODO: set up reverse proxy handler + rate limit middleware
-}
-
-// placeholder — we'll build this out with the /check HTTP handler next
-func runCheckMode(cfg *config.Config) {
-	// TODO: set up /check endpoint
-}
