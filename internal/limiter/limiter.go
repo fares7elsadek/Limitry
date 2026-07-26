@@ -66,8 +66,7 @@ func (e *Engine) checkRedis(ctx context.Context, clientID string, r *config.Rout
 		case "token_bucket":
 			return tokenBucketAllow(ctx, e.redis, key, r.Limit, r.Window)
 		case "sliding_window":
-			// TODO: implement sliding window next
-			return true, 0, nil
+			return slidingWindowCounterAllow(ctx, e.redis, key, r.Limit, r.Window)
 		default:
 			return true, 0, nil
 	}
