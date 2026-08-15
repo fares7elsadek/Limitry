@@ -6,7 +6,11 @@ import (
 	"time"
 
 	"github.com/fares7elsadek/Limitry/internal/config"
+	"github.com/fares7elsadek/Limitry/internal/telemetry"
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Limiter interface {
@@ -62,12 +66,40 @@ func (e *Engine) Allow(ctx context.Context, clientID, route string) (bool, time.
 func (e *Engine) checkRedis(ctx context.Context, clientID string, r *config.RouteConfig) (bool, time.Duration, error) {
 	key := fmt.Sprintf("ratelimit:%s:%s", r.Path, clientID)
 
+	// --- redis eval span ---
+	ctx, span := telemetry.Tracer().Start(ctx, "limitry.redis.eval",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "redis"),
+			attribute.String("ratelimit.algorithm", r.Algorithm),
+			attribute.String("ratelimit.key", key),
+		),
+	)
+	defer span.End()
+
+	var (
+		allowed    bool
+		retryAfter time.Duration
+		err        error
+	)
+
 	switch r.Algorithm {
-		case "token_bucket":
-			return tokenBucketAllow(ctx, e.redis, key, r.Limit, r.Window)
-		case "sliding_window":
-			return slidingWindowCounterAllow(ctx, e.redis, key, r.Limit, r.Window)
-		default:
-			return true, 0, nil
+	case "token_bucket":
+		allowed, retryAfter, err = tokenBucketAllow(ctx, e.redis, key, r.Limit, r.Window)
+	case "sliding_window":
+		allowed, retryAfter, err = slidingWindowCounterAllow(ctx, e.redis, key, r.Limit, r.Window)
+	default:
+		return true, 0, nil
 	}
+
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "redis eval failed")
+		span.SetAttributes(attribute.Bool("ratelimit.failmode.activated", true))
+		return false, 0, err
+	}
+
+	span.SetAttributes(attribute.Bool("ratelimit.allowed", allowed))
+	return allowed, retryAfter, nil
 }
+

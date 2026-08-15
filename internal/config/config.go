@@ -15,6 +15,7 @@ type Config struct {
 	Redis   RedisConfig   `yaml:"redis"`
 	Routes  []RouteConfig `yaml:"routes"`
 	Metrics MetricsConfig `yaml:"metrics"`
+	Telemetry  TelemetryConfig  `yaml:"telemetry"`
 }
 
 type BackendConfig struct {
@@ -33,9 +34,35 @@ type RouteConfig struct {
 	Window    time.Duration `yaml:"window"` // yaml.v3 parses "60s" into time.Duration automatically
 }
 
+
+type TelemetryConfig struct {
+	Enabled     bool          `yaml:"enabled"`
+	ServiceName string        `yaml:"service_name"`
+	Environment string        `yaml:"environment"`
+	Traces      TraceConfig   `yaml:"traces"`
+	Metrics     MetricConfig  `yaml:"metrics"`
+	Logs        LogConfig     `yaml:"logs"`
+}
+
 type MetricsConfig struct {
 	Enabled bool `yaml:"enabled"`
 	Port    int  `yaml:"port"`
+}
+
+type TraceConfig struct {
+	Enabled       bool    `yaml:"enabled"`
+	Endpoint      string  `yaml:"endpoint"`
+	Insecure      bool    `yaml:"insecure"`
+	SamplingRatio float64 `yaml:"sampling_ratio"`
+}
+
+type MetricConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+type LogConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Level   string `yaml:"level"`
 }
 
 
@@ -77,6 +104,35 @@ func (c *Config) validate() error {
 		}
 		if r.Limit <= 0 {
 			return fmt.Errorf("route %s: limit must be > 0", r.Path)
+		}
+	}
+	if err := c.Telemetry.validate(); err != nil {
+		return fmt.Errorf("telemetry: %w", err)
+	}
+	return nil
+}
+
+func (t *TelemetryConfig) validate() error {
+	if !t.Enabled {
+		return nil
+	}
+	if t.ServiceName == "" {
+		return fmt.Errorf("service_name is required when telemetry is enabled")
+	}
+	if t.Traces.Enabled {
+		if t.Traces.Endpoint == "" {
+			return fmt.Errorf("traces.endpoint is required when traces are enabled")
+		}
+		if t.Traces.SamplingRatio < 0 || t.Traces.SamplingRatio > 1 {
+			return fmt.Errorf("traces.sampling_ratio must be between 0 and 1, got %v", t.Traces.SamplingRatio)
+		}
+	}
+	if t.Logs.Enabled {
+		switch t.Logs.Level {
+		case "debug", "info", "warn", "error":
+			// ok
+		default:
+			return fmt.Errorf("logs.level must be one of debug/info/warn/error, got %q", t.Logs.Level)
 		}
 	}
 	return nil

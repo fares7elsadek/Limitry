@@ -1,0 +1,39 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  jaeger:
+    image: jaegertracing/jaeger:latest
+    ports:
+      - "16686:16686"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.127.0
+    command: ["--config", "/etc/otel/config.yaml"]
+    volumes:
+      - ./docker/otel-collector.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"
+    depends_on:
+      - jaeger
+
+  limitry:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.yaml:/etc/limitry/config.yaml:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
