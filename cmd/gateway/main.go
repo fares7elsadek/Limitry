@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"github.com/fares7elsadek/Limitry/internal/config"
 	"github.com/fares7elsadek/Limitry/internal/limiter"
 	"github.com/fares7elsadek/Limitry/internal/proxy"
+	"github.com/fares7elsadek/Limitry/internal/telemetry"
 )
 
 func main() {
@@ -21,30 +23,64 @@ func main() {
 		log.Fatalf("failed to load config: %v", err)
 	}
 
-	engine, err := limiter.NewEngine(cfg)
-	if err != nil {
-		log.Fatalf("failed to connect to redis: %v", err)
-	}
-	log.Printf("connected to redis at %s", cfg.Redis.Addr)
+	telemetry.InitLogger(cfg.Telemetry.Logs)
+	logger := telemetry.Log()
 
+	var metrics *telemetry.Metrics
+	if cfg.Telemetry.Enabled && cfg.Telemetry.Metrics.Enabled {
+		metrics, err = telemetry.InitMetrics(cfg.Telemetry.Metrics)
+		if err != nil {
+			logger.Fatal().Err(err).Msg("failed to initialize metrics")
+		}
+		logger.Info().Int("port", cfg.Telemetry.Metrics.Port).Msg("metrics server started")
+	}
+
+	engine, err := limiter.NewEngine(cfg, metrics)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("failed to connect to redis")
+	}
+	logger.Info().Str("addr", cfg.Redis.Addr).Msg("connected to redis")
+
+	// telemetry
+	ctx := context.Background()
+	tracingEnabled := cfg.Telemetry.Enabled && cfg.Telemetry.Traces.Enabled
+
+	if cfg.Telemetry.Enabled {
+
+		res, err := telemetry.NewResource(ctx, cfg.Telemetry)
+		if err != nil {
+			logger.Fatal().Err(err).Msg("failed to create resource")
+		}
+
+		if cfg.Telemetry.Traces.Enabled {
+			shutdownTrace, err := telemetry.InitTracer(ctx, res, cfg.Telemetry.Traces)
+			if err != nil {
+				logger.Fatal().Err(err).Msg("failed to initialize tracer")
+			}
+			defer shutdownTrace(ctx)
+		}
+
+	}
+
+	// mode
 	var handler http.Handler
 	switch cfg.Mode {
 		case "proxy":
-			handler, err = proxy.NewHandler(cfg.Backend.URL, engine)
+			handler, err = proxy.NewHandler(cfg.Backend.URL, engine, tracingEnabled, metrics)
 			if err != nil {
-				log.Fatalf("failed to set up proxy: %v", err)
+				logger.Fatal().Err(err).Msg("failed to set up proxy")
 			}
-			log.Printf("starting in PROXY mode → forwarding to %s", cfg.Backend.URL)
+			logger.Info().Str("forward_to", cfg.Backend.URL).Msg("starting in PROXY mode")
 		case "check":
-			handler = checkapi.NewHandler(engine)
-			log.Println("starting in CHECK mode → POST /check")
+			handler = checkapi.NewHandler(engine, tracingEnabled, metrics)
+			logger.Info().Msg("starting in CHECK mode → POST /check")
 		default:
-			log.Fatalf("unknown mode: %s", cfg.Mode)
+			logger.Fatal().Str("mode", cfg.Mode).Msg("unknown mode")
 	}
 
-	log.Println("listening on :8080")
+	logger.Info().Msg("listening on :8080")
 	if err := http.ListenAndServe(":8080", handler); err != nil {
-		log.Fatal(err)
+		logger.Fatal().Err(err).Msg("server error")
 	}
 
 }

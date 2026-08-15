@@ -1,0 +1,36 @@
+mode: check
+
+backend:
+  url: http://host.docker.internal:9090
+
+redis:
+  addr: redis:6379
+  fail_mode: open
+
+routes:
+  - path: /api/login
+    algorithm: sliding_window
+    limit: 5
+    window: 60s
+
+  - path: /api/search
+    algorithm: token_bucket
+    limit: 100
+    window: 60s
+
+telemetry:
+  enabled: true
+  service_name: limitry
+  environment: development
+  traces:
+    enabled: true
+    endpoint: otel-collector:4317
+    insecure: true
+    sampling_ratio: 1.0
+  metrics:
+    enabled: true
+    port: 8000
+  logs:
+    enabled: true
+    level: info
+    format: console

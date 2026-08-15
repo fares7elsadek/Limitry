@@ -1,0 +1,74 @@
+{
+  "title": "Limitry Dashboard",
+  "timezone": "browser",
+  "refresh": "5s",
+  "schemaVersion": 36,
+  "panels": [
+    {
+      "title": "Request Rate (per route & status)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum by (route, allowed) (rate(limitry_requests_total[1m]))",
+          "legendFormat": "{{route}} (allowed: {{allowed}})"
+        }
+      ]
+    },
+    {
+      "title": "Total Requests by Outcome",
+      "type": "piechart",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum by (allowed) (limitry_requests_total)",
+          "legendFormat": "allowed: {{allowed}}"
+        }
+      ]
+    },
+    {
+      "title": "Request Latency (p99)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, route) (rate(limitry_request_duration_seconds_bucket[1m])))",
+          "legendFormat": "{{route}} p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" }
+      }
+    },
+    {
+      "title": "Redis Eval Latency (p99)",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, route) (rate(limitry_ratelimit_duration_seconds_bucket[1m])))",
+          "legendFormat": "{{route}} p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s" }
+      }
+    },
+    {
+      "title": "Redis Errors",
+      "type": "timeseries",
+      "datasource": "Prometheus",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum by (route, failmode) (rate(limitry_redis_errors_total[1m]))",
+          "legendFormat": "{{route}} (failmode: {{failmode}})"
+        }
+      ]
+    }
+  ]
+}
