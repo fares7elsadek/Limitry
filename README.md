@@ -42,6 +42,7 @@ It runs in **two modes**, making it versatile enough to drop in front of any bac
 | 🗺️ **Per-Route Rules** | Different limits and algorithms for different API paths |
 | 🛡️ **Fail-Mode Control** | Choose between fail-open (allow) or fail-closed (deny) when Redis is down |
 | ⏱️ **Retry-After Headers** | Clients always know exactly when to retry |
+| 📊 **Observability** | Full telemetry: OpenTelemetry Traces, Prometheus Metrics, Structured Logging |
 | 📦 **Zero Runtime Dependencies** | Just a single binary + a Redis instance |
 
 ---
@@ -82,8 +83,18 @@ Limitry/
 │   │   └── sliding_window_counter.go  # Sliding Window Counter via atomic Lua script
 │   ├── proxy/
 │   │   └── proxy.go             # Reverse proxy mode handler
-│   └── checkapi/
-│       └── checkapi.go          # Standalone check API handler (POST /check)
+│   ├── checkapi/
+│   │   └── checkapi.go          # Standalone check API handler (POST /check)
+│   └── telemetry/
+│       ├── tracing.go           # OpenTelemetry tracing setup
+│       ├── metrics.go           # Prometheus metrics definitions and server
+│       ├── logging.go           # Zerolog structured logging initialization
+│       └── resource.go          # Telemetry resource attributes
+├── docker/
+│   ├── otel-collector.yaml      # Configuration for OpenTelemetry Collector
+│   └── prometheus.yaml          # Scrape configuration for Prometheus
+├── Dockerfile                   # Multi-stage scratch build
+├── docker-compose.yaml          # Full local stack (Limitry, Redis, Jaeger, Collector, Prometheus)
 ├── go.mod
 └── config.yaml                  # Your rate-limiting configuration
 ```
@@ -119,10 +130,23 @@ routes:
     limit: 100
     window: 60s
 
-# Metrics (coming soon)
-metrics:
-  enabled: false
-  port: 9091
+# Telemetry (Tracing, Metrics, Logs)
+telemetry:
+  enabled: true
+  service_name: limitry
+  environment: production
+  traces:
+    enabled: true
+    endpoint: otel-collector:4317
+    insecure: true
+    sampling_ratio: 1.0
+  metrics:
+    enabled: true
+    port: 9090
+  logs:
+    enabled: true
+    level: info
+    format: json
 ```
 
 ### Configuration Reference
@@ -137,6 +161,10 @@ metrics:
 | `routes[].algorithm` | `token_bucket` \| `sliding_window` | Rate-limiting algorithm |
 | `routes[].limit` | int | Max requests allowed per window |
 | `routes[].window` | duration | Time window (e.g. `60s`, `1m`, `1h`) |
+| `telemetry.enabled` | bool | Master toggle for all telemetry |
+| `telemetry.traces.enabled` | bool | Enable OpenTelemetry tracing |
+| `telemetry.metrics.enabled` | bool | Enable Prometheus metrics endpoint |
+| `telemetry.logs.enabled` | bool | Enable structured JSON logging |
 
 ---
 
@@ -240,18 +268,25 @@ curl -X POST http://localhost:8080/check \
   -d '{"client_id": "user-1", "route": "/api/login"}'
 ```
 
+### Telemetry (Traces & Metrics)
+
+With the Docker Compose stack running:
+1. **Prometheus Metrics**: Open [http://localhost:9090/graph](http://localhost:9090/graph) and search for `limitry_requests_total`
+2. **Jaeger Traces**: Open [http://localhost:16686](http://localhost:16686) and search for traces under the `limitry` service
+3. **Structured Logs**: View the gateway container logs (`docker compose logs limitry -f`)
+
 ---
 
 ## 🗺️ Roadmap
 
 > This is **v1.0** — a solid foundation. Here's what's planned next:
 
-- [ ] **Prometheus metrics** — expose request counts, allow/deny rates per route
+- [x] **Prometheus metrics** — expose request counts, allow/deny rates per route
 - [ ] **IP-based client identification** with CIDR support
 - [ ] **Leaky Bucket** algorithm support
 - [ ] **Dynamic config reload** without restart
-- [ ] **Docker image** and `docker-compose` example
-- [ ] **Distributed tracing** (OpenTelemetry)
+- [x] **Docker image** and `docker-compose` example
+- [x] **Distributed tracing** (OpenTelemetry)
 - [ ] **Dashboard UI** for live traffic visualization
 
 ---

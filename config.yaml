@@ -28,6 +28,9 @@ telemetry:
     insecure: true
     sampling_ratio: 1.0
   metrics:
-    enabled: false
+    enabled: true
+    port: 9090
   logs:
-    enabled: false
+    enabled: true
+    level: info
+    format: console

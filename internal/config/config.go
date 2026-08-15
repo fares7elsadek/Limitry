@@ -8,14 +8,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-
 type Config struct {
-	Mode    string        `yaml:"mode"`
-	Backend BackendConfig `yaml:"backend"`
-	Redis   RedisConfig   `yaml:"redis"`
-	Routes  []RouteConfig `yaml:"routes"`
-	Metrics MetricsConfig `yaml:"metrics"`
-	Telemetry  TelemetryConfig  `yaml:"telemetry"`
+	Mode      string          `yaml:"mode"`
+	Backend   BackendConfig   `yaml:"backend"`
+	Redis     RedisConfig     `yaml:"redis"`
+	Routes    []RouteConfig   `yaml:"routes"`
+	Telemetry TelemetryConfig `yaml:"telemetry"`
 }
 
 type BackendConfig struct {
@@ -34,19 +32,13 @@ type RouteConfig struct {
 	Window    time.Duration `yaml:"window"` // yaml.v3 parses "60s" into time.Duration automatically
 }
 
-
 type TelemetryConfig struct {
-	Enabled     bool          `yaml:"enabled"`
-	ServiceName string        `yaml:"service_name"`
-	Environment string        `yaml:"environment"`
-	Traces      TraceConfig   `yaml:"traces"`
-	Metrics     MetricConfig  `yaml:"metrics"`
-	Logs        LogConfig     `yaml:"logs"`
-}
-
-type MetricsConfig struct {
-	Enabled bool `yaml:"enabled"`
-	Port    int  `yaml:"port"`
+	Enabled     bool         `yaml:"enabled"`
+	ServiceName string       `yaml:"service_name"`
+	Environment string       `yaml:"environment"`
+	Traces      TraceConfig  `yaml:"traces"`
+	Metrics     MetricConfig `yaml:"metrics"`
+	Logs        LogConfig    `yaml:"logs"`
 }
 
 type TraceConfig struct {
@@ -58,20 +50,21 @@ type TraceConfig struct {
 
 type MetricConfig struct {
 	Enabled bool `yaml:"enabled"`
+	Port    int  `yaml:"port"`
 }
 
 type LogConfig struct {
 	Enabled bool   `yaml:"enabled"`
 	Level   string `yaml:"level"`
+	Format  string `yaml:"format"` // "json" or "console"
 }
 
-
-func Load(path string) (*Config, error){
+func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading config file: %w", err)
 	}
-	
+
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parsing yaml: %w", err)
@@ -83,7 +76,6 @@ func Load(path string) (*Config, error){
 
 	return &cfg, nil
 }
-
 
 func (c *Config) validate() error {
 	if c.Mode != "proxy" && c.Mode != "check" {
@@ -127,12 +119,23 @@ func (t *TelemetryConfig) validate() error {
 			return fmt.Errorf("traces.sampling_ratio must be between 0 and 1, got %v", t.Traces.SamplingRatio)
 		}
 	}
+	if t.Metrics.Enabled {
+		if t.Metrics.Port <= 0 || t.Metrics.Port > 65535 {
+			return fmt.Errorf("metrics.port must be between 1 and 65535, got %d", t.Metrics.Port)
+		}
+	}
 	if t.Logs.Enabled {
 		switch t.Logs.Level {
 		case "debug", "info", "warn", "error":
 			// ok
 		default:
 			return fmt.Errorf("logs.level must be one of debug/info/warn/error, got %q", t.Logs.Level)
+		}
+		switch t.Logs.Format {
+		case "json", "console", "":
+			// ok — empty defaults to "json"
+		default:
+			return fmt.Errorf("logs.format must be 'json' or 'console', got %q", t.Logs.Format)
 		}
 	}
 	return nil

@@ -24,12 +24,22 @@ services:
     depends_on:
       - jaeger
 
+  prometheus:
+    image: prom/prometheus:latest
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+
   limitry:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
+      - "9091:9090" # Host 9091 -> Limitry 9090 to avoid conflict with prometheus UI
     volumes:
       - ./config.yaml:/etc/limitry/config.yaml:ro
     depends_on:

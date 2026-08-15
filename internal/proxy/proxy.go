@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/fares7elsadek/Limitry/internal/limiter"
@@ -15,7 +16,17 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-func NewHandler(backendURL string, lim limiter.Limiter, tracingEnabled bool) (http.Handler, error) {
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(status int) {
+	r.status = status
+	r.ResponseWriter.WriteHeader(status)
+}
+
+func NewHandler(backendURL string, lim limiter.Limiter, tracingEnabled bool, metrics *telemetry.Metrics) (http.Handler, error) {
 	target, err := url.Parse(backendURL)
 	if err != nil {
 		return nil, err
@@ -27,6 +38,9 @@ func NewHandler(backendURL string, lim limiter.Limiter, tracingEnabled bool) (ht
 	}
 
 	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+
 		clientID := r.Header.Get("X-Client-Id")
 		if clientID == "" {
 			clientID = r.RemoteAddr
@@ -59,7 +73,8 @@ func NewHandler(backendURL string, lim limiter.Limiter, tracingEnabled bool) (ht
 				span.SetStatus(codes.Error, "rate limiter error")
 				span.End()
 			}
-			http.Error(w, "rate limiter error", http.StatusInternalServerError)
+			http.Error(rec, "rate limiter error", http.StatusInternalServerError)
+			logAndRecordMetrics(metrics, start, r, clientID, allowed, rec.status)
 			return
 		}
 
@@ -70,8 +85,9 @@ func NewHandler(backendURL string, lim limiter.Limiter, tracingEnabled bool) (ht
 				)
 				span.End()
 			}
-			w.Header().Set("Retry-After", retryAfter.String())
-			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			rec.Header().Set("Retry-After", retryAfter.String())
+			http.Error(rec, "rate limit exceeded", http.StatusTooManyRequests)
+			logAndRecordMetrics(metrics, start, r, clientID, allowed, rec.status)
 			return
 		}
 
@@ -79,7 +95,8 @@ func NewHandler(backendURL string, lim limiter.Limiter, tracingEnabled bool) (ht
 			span.End()
 		}
 
-		reverseProxy.ServeHTTP(w, r.WithContext(ctx))
+		reverseProxy.ServeHTTP(rec, r.WithContext(ctx))
+		logAndRecordMetrics(metrics, start, r, clientID, allowed, rec.status)
 	})
 
 	if !tracingEnabled {
@@ -91,4 +108,22 @@ func NewHandler(backendURL string, lim limiter.Limiter, tracingEnabled bool) (ht
 			return r.Method + " " + r.URL.Path
 		}),
 	), nil
+}
+
+func logAndRecordMetrics(metrics *telemetry.Metrics, start time.Time, r *http.Request, clientID string, allowed bool, status int) {
+	duration := time.Since(start)
+
+	if metrics != nil {
+		metrics.RequestsTotal.WithLabelValues(r.URL.Path, strconv.FormatBool(allowed), "proxy").Inc()
+		metrics.RequestDuration.WithLabelValues(r.URL.Path, strconv.Itoa(status), "proxy").Observe(duration.Seconds())
+	}
+
+	telemetry.Log().Info().
+		Str("method", r.Method).
+		Str("path", r.URL.Path).
+		Str("client_id", clientID).
+		Bool("allowed", allowed).
+		Int("status", status).
+		Dur("duration", duration).
+		Msg("proxy request handled")
 }
