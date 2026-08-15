@@ -33,13 +33,26 @@ services:
     volumes:
       - ./docker/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
 
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+
   limitry:
     build:
       context: .
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
-      - "9091:9090" # Host 9091 -> Limitry 9090 to avoid conflict with prometheus UI
+      - "8000:8000"
     volumes:
       - ./config.yaml:/etc/limitry/config.yaml:ro
     depends_on:

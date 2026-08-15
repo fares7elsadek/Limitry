@@ -5,4 +5,4 @@ global:
 scrape_configs:
   - job_name: 'limitry'
     static_configs:
-      - targets: ['limitry:9090']
+      - targets: ['limitry:8000']

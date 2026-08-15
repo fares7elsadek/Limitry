@@ -29,7 +29,7 @@ telemetry:
     sampling_ratio: 1.0
   metrics:
     enabled: true
-    port: 9090
+    port: 8000
   logs:
     enabled: true
     level: info
