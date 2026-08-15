@@ -42,7 +42,7 @@ It runs in **two modes**, making it versatile enough to drop in front of any bac
 | 🗺️ **Per-Route Rules** | Different limits and algorithms for different API paths |
 | 🛡️ **Fail-Mode Control** | Choose between fail-open (allow) or fail-closed (deny) when Redis is down |
 | ⏱️ **Retry-After Headers** | Clients always know exactly when to retry |
-| 📊 **Observability** | Full telemetry: OpenTelemetry Traces, Prometheus Metrics, Structured Logging |
+| 📊 **Observability** | Full telemetry: OpenTelemetry Traces, Prometheus Metrics, Grafana Dashboard, Structured Logging |
 | 📦 **Zero Runtime Dependencies** | Just a single binary + a Redis instance |
 
 ---
@@ -91,6 +91,7 @@ Limitry/
 │       ├── logging.go           # Zerolog structured logging initialization
 │       └── resource.go          # Telemetry resource attributes
 ├── docker/
+│   ├── grafana/                 # Pre-configured Grafana dashboard and datasources
 │   ├── otel-collector.yaml      # Configuration for OpenTelemetry Collector
 │   └── prometheus.yaml          # Scrape configuration for Prometheus
 ├── Dockerfile                   # Multi-stage scratch build
@@ -142,7 +143,7 @@ telemetry:
     sampling_ratio: 1.0
   metrics:
     enabled: true
-    port: 9090
+    port: 8000
   logs:
     enabled: true
     level: info
@@ -271,9 +272,10 @@ curl -X POST http://localhost:8080/check \
 ### Telemetry (Traces & Metrics)
 
 With the Docker Compose stack running:
-1. **Prometheus Metrics**: Open [http://localhost:9090/graph](http://localhost:9090/graph) and search for `limitry_requests_total`
-2. **Jaeger Traces**: Open [http://localhost:16686](http://localhost:16686) and search for traces under the `limitry` service
-3. **Structured Logs**: View the gateway container logs (`docker compose logs limitry -f`)
+1. **Grafana Dashboards**: Open [http://localhost:3000](http://localhost:3000) (User/Pass: `admin`/`admin`) to view the live Limitry traffic dashboard.
+2. **Prometheus Metrics**: Open [http://localhost:9090/graph](http://localhost:9090/graph) and search for `limitry_requests_total`
+3. **Jaeger Traces**: Open [http://localhost:16686](http://localhost:16686) and search for traces under the `limitry` service
+4. **Structured Logs**: View the gateway container logs (`docker compose logs limitry -f`)
 
 ---
 
@@ -287,7 +289,7 @@ With the Docker Compose stack running:
 - [ ] **Dynamic config reload** without restart
 - [x] **Docker image** and `docker-compose` example
 - [x] **Distributed tracing** (OpenTelemetry)
-- [ ] **Dashboard UI** for live traffic visualization
+- [x] **Dashboard UI** for live traffic visualization (Grafana)
 
 ---
 
