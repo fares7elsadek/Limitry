@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: limitry-config
+  namespace: limitry
+  labels:
+    app.kubernetes.io/name: limitry
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: limitry
+data:
+  config.yaml: |
+    mode: check
+
+    redis:
+      addr: redis.limitry.svc.cluster.local:6379
+      fail_mode: open
+
+    routes:
+      - path: /api/login
+        algorithm: sliding_window
+        limit: 5
+        window: 60s
+
+      - path: /api/search
+        algorithm: token_bucket
+        limit: 100
+        window: 60s
+
+    telemetry:
+      enabled: true
+      service_name: limitry
+      environment: production
+      traces:
+        enabled: true
+        endpoint: otel-collector.limitry.svc.cluster.local:4317
+        insecure: true
+        sampling_ratio: 1.0
+      metrics:
+        enabled: true
+        port: 8000
+      logs:
+        enabled: true
+        level: info
+        format: json
