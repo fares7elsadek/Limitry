@@ -6,33 +6,33 @@
 
 <p align="center">
   <b>A production-grade distributed rate limiter written in Go</b><br>
-  <sub>Redis-backed · Dual-mode · Atomic Lua scripts · Per-route configuration</sub>
+  <sub>Redis-backed · Dual-mode · Atomic Lua scripts · Per-route configuration · Kubernetes-ready</sub>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=for-the-badge&logo=go&logoColor=white" />
   <img src="https://img.shields.io/badge/Redis-7.x-DC382D?style=for-the-badge&logo=redis&logoColor=white" />
+  <img src="https://img.shields.io/badge/Kubernetes-ready-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white" />
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Status-v1.0-blueviolet?style=for-the-badge" />
 </p>
 
 ---
 
-## 🚀 What is Limitry?
+## Overview
 
 **Limitry** is a lightweight, distributed rate limiter built for cloud-native environments. It protects your APIs from traffic spikes and abuse by enforcing per-client, per-route request quotas — backed by Redis for consistency across multiple service instances.
 
 It runs in **two modes**, making it versatile enough to drop in front of any backend or integrate with any existing API gateway.
 
 ```
- Client → [ Limitry Gateway ] → Your Backend
+ Client → [ Limitry ] → Your Backend
                │
         Redis (shared state)
 ```
 
 ---
 
-## ✨ Features
+## Features
 
 | Feature | Description |
 |---|---|
@@ -42,24 +42,25 @@ It runs in **two modes**, making it versatile enough to drop in front of any bac
 | 🗺️ **Per-Route Rules** | Different limits and algorithms for different API paths |
 | 🛡️ **Fail-Mode Control** | Choose between fail-open (allow) or fail-closed (deny) when Redis is down |
 | ⏱️ **Retry-After Headers** | Clients always know exactly when to retry |
-| 📊 **Observability** | Full telemetry: OpenTelemetry Traces, Prometheus Metrics, Grafana Dashboard, Structured Logging |
-| 📦 **Zero Runtime Dependencies** | Just a single binary + a Redis instance |
+| 📊 **Full Observability** | OpenTelemetry traces, Prometheus metrics, Grafana dashboards, structured logging |
+| ☸️ **Kubernetes-Ready** | Production manifests with Kustomize — deploy the full stack in one command |
+| 📦 **Single Binary** | Zero runtime dependencies beyond Redis |
 
 ---
 
-## 🧠 Algorithms
+## Algorithms
 
-### 🪣 Token Bucket
+### Token Bucket
 
-Tokens accumulate at a constant rate up to a maximum capacity. Each request consumes one token. This algorithm is ideal for **bursty traffic** — clients can absorb short spikes while still being capped over time.
+Tokens accumulate at a constant rate up to a maximum capacity. Each request consumes one token. Ideal for **bursty traffic** — clients can absorb short spikes while still being capped over time.
 
 ```
 Tokens refill at: limit / window (tokens/sec)
 ```
 
-### 🪟 Sliding Window Counter
+### Sliding Window Counter
 
-A hybrid of fixed-window counters. It blends the current and previous window's counts weighted by how far into the current window we are. This provides **smoother traffic shaping** than a fixed window while being far cheaper than a pure sliding log.
+A hybrid of fixed-window counters. It blends the current and previous window's counts weighted by how far into the current window we are. Provides **smoother traffic shaping** than a fixed window while being far cheaper than a pure sliding log.
 
 ```
 estimated = prev_count × (1 − elapsed_fraction) + current_count
@@ -67,42 +68,51 @@ estimated = prev_count × (1 − elapsed_fraction) + current_count
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 Limitry/
 ├── cmd/
 │   └── gateway/
-│       └── main.go              # Entrypoint — loads config, wires up mode handler
+│       └── main.go                    # Entrypoint — loads config, wires up mode handler
 ├── internal/
 │   ├── config/
-│   │   └── config.go            # YAML config loader & validator
+│   │   └── config.go                  # YAML config loader & validator
 │   ├── limiter/
-│   │   ├── limiter.go           # Engine — Redis connection, routing to algorithms
-│   │   ├── tokenbucket.go       # Token Bucket via atomic Lua script
+│   │   ├── limiter.go                 # Engine — Redis connection, routing to algorithms
+│   │   ├── tokenbucket.go             # Token Bucket via atomic Lua script
 │   │   └── sliding_window_counter.go  # Sliding Window Counter via atomic Lua script
 │   ├── proxy/
-│   │   └── proxy.go             # Reverse proxy mode handler
+│   │   └── proxy.go                   # Reverse proxy mode handler
 │   ├── checkapi/
-│   │   └── checkapi.go          # Standalone check API handler (POST /check)
+│   │   └── checkapi.go                # Standalone check API handler (POST /check)
 │   └── telemetry/
-│       ├── tracing.go           # OpenTelemetry tracing setup
-│       ├── metrics.go           # Prometheus metrics definitions and server
-│       ├── logging.go           # Zerolog structured logging initialization
-│       └── resource.go          # Telemetry resource attributes
+│       ├── tracing.go                 # OpenTelemetry tracing setup
+│       ├── metrics.go                 # Prometheus metrics definitions and server
+│       ├── logging.go                 # Zerolog structured logging initialization
+│       └── resource.go                # Telemetry resource attributes
+├── k8s/                               # Kubernetes manifests (Kustomize)
+│   ├── kustomization.yaml
+│   ├── namespace.yaml
+│   ├── limitry/                       # Limitry Deployment, Service, ConfigMap
+│   ├── redis/                         # Redis Deployment, Service
+│   ├── otel-collector/                # OTel Collector Deployment, Service, ConfigMap
+│   ├── jaeger/                        # Jaeger Deployment, Service
+│   ├── prometheus/                    # Prometheus Deployment, Service, ConfigMap
+│   └── grafana/                       # Grafana Deployment, Service, ConfigMap
 ├── docker/
-│   ├── grafana/                 # Pre-configured Grafana dashboard and datasources
-│   ├── otel-collector.yaml      # Configuration for OpenTelemetry Collector
-│   └── prometheus.yaml          # Scrape configuration for Prometheus
-├── Dockerfile                   # Multi-stage scratch build
-├── docker-compose.yaml          # Full local stack (Limitry, Redis, Jaeger, Collector, Prometheus)
+│   ├── grafana/                       # Pre-configured Grafana dashboard and datasources
+│   ├── otel-collector.yaml            # Configuration for OpenTelemetry Collector
+│   └── prometheus.yaml                # Scrape configuration for Prometheus
+├── Dockerfile                         # Multi-stage build
+├── docker-compose.yaml                # Full local dev stack
 ├── go.mod
-└── config.yaml                  # Your rate-limiting configuration
+└── config.yaml                        # Rate-limiting configuration
 ```
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 Limitry is configured with a single `config.yaml` file.
 
@@ -169,9 +179,9 @@ telemetry:
 
 ---
 
-## 🚦 Operation Modes
+## Operation Modes
 
-### Mode 1: Reverse Proxy
+### Reverse Proxy
 
 Limitry sits transparently in front of your backend. It checks each incoming request, forwards allowed requests upstream, and rejects throttled ones with `429 Too Many Requests`.
 
@@ -182,7 +192,7 @@ POST /api/login  →  Limitry  →  (if allowed) Your Backend
 
 **Client Identity** is resolved from the `X-Client-Id` header, falling back to `RemoteAddr`.
 
-### Mode 2: Check API
+### Check API
 
 Limitry runs as a standalone decision service. Your application calls `POST /check` and receives a JSON response telling it whether to allow or deny the request.
 
@@ -210,49 +220,128 @@ curl -X POST http://localhost:8080/check \
 
 ---
 
-## 🛠️ Getting Started
+## Getting Started
 
 ### Prerequisites
 
 - [Go 1.21+](https://go.dev/dl/)
 - [Redis 7.x](https://redis.io/download) running locally or remotely
 
-### Installation
+### Build from Source
 
 ```bash
-# Clone the repository
 git clone https://github.com/fares7elsadek/Limitry.git
 cd Limitry
 
-# Download dependencies
 go mod download
-
-# Build the binary
 go build -o limitry ./cmd/gateway
 ```
 
 ### Run
 
 ```bash
-# Start Limitry with a config file
 ./limitry --config config.yaml
-```
-
-Or specify a custom config path:
-
-```bash
-./limitry --config /etc/limitry/production.yaml
 ```
 
 ---
 
-## 🧪 Testing
+## Deployment
 
-### Proxy Mode — Quick Smoke Test
+Limitry supports three deployment methods depending on your environment.
+
+### Docker Compose (Local Development)
+
+Spins up the full stack — Limitry, Redis, Jaeger, OTel Collector, Prometheus, and Grafana:
 
 ```bash
-# Start a simple backend echo server on port 9090
-# Then fire 10 rapid requests and watch for 429s
+docker compose up -d
+```
+
+### Docker
+
+```bash
+docker build -t limitry .
+docker run -v $(pwd)/config.yaml:/etc/limitry/config.yaml -p 8080:8080 limitry
+```
+
+### Kubernetes
+
+Limitry ships with production-ready Kubernetes manifests using [Kustomize](https://kustomize.io/). A single command deploys the full stack into a dedicated `limitry` namespace:
+
+| Component | Replicas | Purpose |
+|---|---|---|
+| **Limitry** | 2 | Rate limiter gateway |
+| **Redis** | 1 | Shared state store |
+| **OTel Collector** | 1 | Trace pipeline |
+| **Jaeger** | 1 | Trace visualization |
+| **Prometheus** | 1 | Metrics collection |
+| **Grafana** | 1 | Dashboards & alerting |
+
+**Deploy:**
+
+```bash
+kubectl apply -k k8s/
+```
+
+**Verify:**
+
+```bash
+kubectl get pods -n limitry
+```
+
+**Access services** via port-forward:
+
+```bash
+# Limitry API
+kubectl port-forward -n limitry svc/limitry 8080:8080
+
+# Grafana (admin/admin)
+kubectl port-forward -n limitry svc/grafana 3000:3000
+
+# Jaeger UI
+kubectl port-forward -n limitry svc/jaeger 16686:16686
+
+# Prometheus
+kubectl port-forward -n limitry svc/prometheus 9090:9090
+```
+
+**Tear down:**
+
+```bash
+kubectl delete -k k8s/
+```
+
+> **Note:** The manifests reference `ghcr.io/fares7elsadek/limitry:1.0.0` by default. Update the image in `k8s/limitry/deployment.yaml` if using a different registry.
+
+---
+
+## Observability
+
+Limitry provides full observability out of the box. All telemetry is available when deploying via Docker Compose or Kubernetes.
+
+| Tool | URL | Credentials | What it shows |
+|---|---|---|---|
+| **Grafana** | [localhost:3000](http://localhost:3000) | `admin` / `admin` | Pre-built Limitry traffic dashboard |
+| **Prometheus** | [localhost:9090](http://localhost:9090) | — | Raw metrics (`limitry_requests_total`, latency histograms) |
+| **Jaeger** | [localhost:16686](http://localhost:16686) | — | Distributed traces for every rate-limit decision |
+
+### Exposed Metrics
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `limitry_requests_total` | Counter | `route`, `allowed`, `mode` | Total rate-limit decisions |
+| `limitry_ratelimit_duration_seconds` | Histogram | `route`, `algorithm` | Redis round-trip latency |
+| `limitry_redis_errors_total` | Counter | `route`, `failmode` | Redis errors during evaluation |
+| `limitry_request_duration_seconds` | Histogram | `route`, `status_code`, `mode` | End-to-end HTTP request duration |
+
+---
+
+## Testing
+
+### Proxy Mode
+
+```bash
+# Fire 10 rapid requests and watch for 429s
 for i in $(seq 1 10); do
   curl -s -o /dev/null -w "%{http_code}\n" \
     -H "X-Client-Id: test-user" \
@@ -260,40 +349,17 @@ for i in $(seq 1 10); do
 done
 ```
 
-### Check API Mode — Manual Test
+### Check API Mode
 
 ```bash
-# Should return {"allowed":true,"retry_after_seconds":0}
 curl -X POST http://localhost:8080/check \
   -H "Content-Type: application/json" \
   -d '{"client_id": "user-1", "route": "/api/login"}'
 ```
 
-### Telemetry (Traces & Metrics)
-
-With the Docker Compose stack running:
-1. **Grafana Dashboards**: Open [http://localhost:3000](http://localhost:3000) (User/Pass: `admin`/`admin`) to view the live Limitry traffic dashboard.
-2. **Prometheus Metrics**: Open [http://localhost:9090/graph](http://localhost:9090/graph) and search for `limitry_requests_total`
-3. **Jaeger Traces**: Open [http://localhost:16686](http://localhost:16686) and search for traces under the `limitry` service
-4. **Structured Logs**: View the gateway container logs (`docker compose logs limitry -f`)
-
 ---
 
-## 🗺️ Roadmap
-
-> This is **v1.0** — a solid foundation. Here's what's planned next:
-
-- [x] **Prometheus metrics** — expose request counts, allow/deny rates per route
-- [ ] **IP-based client identification** with CIDR support
-- [ ] **Leaky Bucket** algorithm support
-- [ ] **Dynamic config reload** without restart
-- [x] **Docker image** and `docker-compose` example
-- [x] **Distributed tracing** (OpenTelemetry)
-- [x] **Dashboard UI** for live traffic visualization (Grafana)
-
----
-
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Feel free to open an issue or a pull request.
 
@@ -305,7 +371,7 @@ Contributions are welcome! Feel free to open an issue or a pull request.
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 
