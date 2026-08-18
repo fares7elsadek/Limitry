@@ -1,4 +1,4 @@
-mode: check
+mode: proxy
 
 backend:
   url: http://host.docker.internal:9090

@@ -12,23 +12,76 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=for-the-badge&logo=go&logoColor=white" />
   <img src="https://img.shields.io/badge/Redis-7.x-DC382D?style=for-the-badge&logo=redis&logoColor=white" />
+  <img src="https://img.shields.io/badge/k6-tested-7D64FF?style=for-the-badge&logo=k6&logoColor=white" />
   <img src="https://img.shields.io/badge/Kubernetes-ready-326CE5?style=for-the-badge&logo=kubernetes&logoColor=white" />
   <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" />
 </p>
 
+<p align="center">
+  <sub>
+    <b>p95 latency: 5ms</b> (Check API) · <b>34ms</b> (Proxy) · <b>~650 req/s</b> per instance · <b>100 concurrent users</b> spike-tested
+  </sub>
+</p>
+
 ---
 
-## Overview
+## Why Limitry?
 
-**Limitry** is a lightweight, distributed rate limiter built for cloud-native environments. It protects your APIs from traffic spikes and abuse by enforcing per-client, per-route request quotas — backed by Redis for consistency across multiple service instances.
+Most rate limiters are either too simple (in-memory, single-instance) or too complex (require a service mesh). Limitry fills the gap:
 
-It runs in **two modes**, making it versatile enough to drop in front of any backend or integrate with any existing API gateway.
+- **Drop-in protection** — runs as a transparent reverse proxy or a standalone decision API
+- **Truly distributed** — Redis-backed state means every instance agrees on rate limits
+- **No race conditions** — atomic Lua scripts guarantee correctness under high concurrency
+- **Battle-tested** — k6 load tested with smoke, load, and spike scenarios up to 100 concurrent VUs
 
 ```
  Client → [ Limitry ] → Your Backend
                │
         Redis (shared state)
 ```
+
+---
+
+## Performance Benchmarks
+
+Limitry is load-tested with [k6](https://k6.io/) across three scenarios: smoke (1 VU), load (50 VUs), and spike (100 VUs). All tests run for ~2m 25s against a Dockerized stack.
+
+### Check API Mode (`POST /check`)
+
+| Metric | Value |
+|---|---|
+| **p95 Latency** | 5.46ms |
+| **p99 Latency** | 9.17ms |
+| **Avg Latency** | 3.06ms |
+| **Throughput** | ~649 req/s |
+| **Error Rate** | 0.00% |
+| **Total Requests** | 93,918 |
+| **Rate-Limited (429)** | 66.35% |
+
+### Proxy Mode (Reverse Proxy)
+
+| Metric | Value |
+|---|---|
+| **p95 Latency** | 34.27ms |
+| **p99 Latency** | 85.79ms |
+| **Avg Latency** | 8.12ms |
+| **Throughput** | ~616 req/s |
+| **Error Rate** | 0.00% |
+| **Total Requests** | 89,322 |
+| **Rate-Limited (429)** | 69.08% |
+
+<details>
+<summary><b>Pass/Fail Thresholds</b></summary>
+
+| Threshold | Condition | Check API | Proxy |
+|---|---|---|---|
+| `http_req_duration` | p95 < 500ms | ✅ 5.46ms | ✅ 34.27ms |
+| `http_req_duration` | p99 < 1000ms | ✅ 9.17ms | ✅ 85.79ms |
+| `http_req_failed` | rate < 10% | ✅ 0.00% | ✅ 0.00% |
+
+</details>
+
+> **Note:** Proxy mode latency includes the round-trip to the upstream backend. Check API mode is a pure rate-limit decision with no proxying overhead.
 
 ---
 
@@ -43,8 +96,37 @@ It runs in **two modes**, making it versatile enough to drop in front of any bac
 | 🛡️ **Fail-Mode Control** | Choose between fail-open (allow) or fail-closed (deny) when Redis is down |
 | ⏱️ **Retry-After Headers** | Clients always know exactly when to retry |
 | 📊 **Full Observability** | OpenTelemetry traces, Prometheus metrics, Grafana dashboards, structured logging |
+| 🔬 **Load Tested** | k6 performance benchmarks with smoke, load, and spike scenarios |
 | ☸️ **Kubernetes-Ready** | Production manifests with Kustomize — deploy the full stack in one command |
 | 📦 **Single Binary** | Zero runtime dependencies beyond Redis |
+
+---
+
+## Quick Start
+
+```bash
+# Clone and build
+git clone https://github.com/fares7elsadek/Limitry.git && cd Limitry
+go build -o limitry ./cmd/gateway
+
+# Run (requires Redis on localhost:6379)
+./limitry --config config.yaml
+
+# Or use Docker Compose for the full stack
+docker compose up -d
+```
+
+Test it immediately:
+
+```bash
+# Fire 10 rapid requests — watch rate limiting kick in
+for i in $(seq 1 10); do
+  curl -s -o /dev/null -w "%{http_code}\n" \
+    -H "X-Client-Id: test-user" \
+    http://localhost:8080/api/login
+done
+# Output: 200 200 200 200 200 429 429 429 429 429
+```
 
 ---
 
@@ -68,46 +150,43 @@ estimated = prev_count × (1 − elapsed_fraction) + current_count
 
 ---
 
-## Architecture
+## Operation Modes
+
+### Reverse Proxy
+
+Limitry sits transparently in front of your backend. It checks each incoming request, forwards allowed requests upstream, and rejects throttled ones with `429 Too Many Requests`.
 
 ```
-Limitry/
-├── cmd/
-│   └── gateway/
-│       └── main.go                    # Entrypoint — loads config, wires up mode handler
-├── internal/
-│   ├── config/
-│   │   └── config.go                  # YAML config loader & validator
-│   ├── limiter/
-│   │   ├── limiter.go                 # Engine — Redis connection, routing to algorithms
-│   │   ├── tokenbucket.go             # Token Bucket via atomic Lua script
-│   │   └── sliding_window_counter.go  # Sliding Window Counter via atomic Lua script
-│   ├── proxy/
-│   │   └── proxy.go                   # Reverse proxy mode handler
-│   ├── checkapi/
-│   │   └── checkapi.go                # Standalone check API handler (POST /check)
-│   └── telemetry/
-│       ├── tracing.go                 # OpenTelemetry tracing setup
-│       ├── metrics.go                 # Prometheus metrics definitions and server
-│       ├── logging.go                 # Zerolog structured logging initialization
-│       └── resource.go                # Telemetry resource attributes
-├── k8s/                               # Kubernetes manifests (Kustomize)
-│   ├── kustomization.yaml
-│   ├── namespace.yaml
-│   ├── limitry/                       # Limitry Deployment, Service, ConfigMap
-│   ├── redis/                         # Redis Deployment, Service
-│   ├── otel-collector/                # OTel Collector Deployment, Service, ConfigMap
-│   ├── jaeger/                        # Jaeger Deployment, Service
-│   ├── prometheus/                    # Prometheus Deployment, Service, ConfigMap
-│   └── grafana/                       # Grafana Deployment, Service, ConfigMap
-├── docker/
-│   ├── grafana/                       # Pre-configured Grafana dashboard and datasources
-│   ├── otel-collector.yaml            # Configuration for OpenTelemetry Collector
-│   └── prometheus.yaml                # Scrape configuration for Prometheus
-├── Dockerfile                         # Multi-stage build
-├── docker-compose.yaml                # Full local dev stack
-├── go.mod
-└── config.yaml                        # Rate-limiting configuration
+POST /api/login  →  Limitry  →  (if allowed) Your Backend
+                             →  (if throttled) 429 + Retry-After
+```
+
+**Client Identity** is resolved from the `X-Client-Id` header, falling back to `RemoteAddr`.
+
+### Check API
+
+Limitry runs as a standalone decision service. Your application calls `POST /check` and receives a JSON response telling it whether to allow or deny the request.
+
+```bash
+curl -X POST http://localhost:8080/check \
+  -H "Content-Type: application/json" \
+  -d '{"client_id": "user-42", "route": "/api/login"}'
+```
+
+**Response (allowed):**
+```json
+{
+  "allowed": true,
+  "retry_after_seconds": 0
+}
+```
+
+**Response (throttled):**
+```json
+{
+  "allowed": false,
+  "retry_after_seconds": 47
+}
 ```
 
 ---
@@ -176,72 +255,6 @@ telemetry:
 | `telemetry.traces.enabled` | bool | Enable OpenTelemetry tracing |
 | `telemetry.metrics.enabled` | bool | Enable Prometheus metrics endpoint |
 | `telemetry.logs.enabled` | bool | Enable structured JSON logging |
-
----
-
-## Operation Modes
-
-### Reverse Proxy
-
-Limitry sits transparently in front of your backend. It checks each incoming request, forwards allowed requests upstream, and rejects throttled ones with `429 Too Many Requests`.
-
-```
-POST /api/login  →  Limitry  →  (if allowed) Your Backend
-                             →  (if throttled) 429 + Retry-After
-```
-
-**Client Identity** is resolved from the `X-Client-Id` header, falling back to `RemoteAddr`.
-
-### Check API
-
-Limitry runs as a standalone decision service. Your application calls `POST /check` and receives a JSON response telling it whether to allow or deny the request.
-
-```bash
-curl -X POST http://localhost:8080/check \
-  -H "Content-Type: application/json" \
-  -d '{"client_id": "user-42", "route": "/api/login"}'
-```
-
-**Response (allowed):**
-```json
-{
-  "allowed": true,
-  "retry_after_seconds": 0
-}
-```
-
-**Response (throttled):**
-```json
-{
-  "allowed": false,
-  "retry_after_seconds": 47
-}
-```
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- [Go 1.21+](https://go.dev/dl/)
-- [Redis 7.x](https://redis.io/download) running locally or remotely
-
-### Build from Source
-
-```bash
-git clone https://github.com/fares7elsadek/Limitry.git
-cd Limitry
-
-go mod download
-go build -o limitry ./cmd/gateway
-```
-
-### Run
-
-```bash
-./limitry --config config.yaml
-```
 
 ---
 
@@ -336,25 +349,99 @@ Limitry provides full observability out of the box. All telemetry is available w
 
 ---
 
-## Testing
+## Load Testing
 
-### Proxy Mode
+Limitry ships with comprehensive [k6](https://k6.io/) load tests to validate performance and correctness under pressure.
+
+### Test Scripts
+
+| Script | Mode | Routes Tested | Description |
+|---|---|---|---|
+| `k6/check-api-test.js` | Check API | `/api/login`, `/api/search` | Tests `POST /check` endpoint |
+| `k6/proxy-test.js` | Proxy | `/api/login`, `/api/search` | Tests reverse proxy with `X-Client-Id` |
+
+### Scenarios
+
+Each test script runs three scenarios sequentially:
+
+| Scenario | VUs | Duration | Purpose |
+|---|---|---|---|
+| **Smoke** | 1 | 10s | Basic sanity — verify the service responds correctly |
+| **Load** | 0 → 50 → 0 | ~1m 40s | Steady-state — sustained traffic under normal load |
+| **Spike** | 0 → 100 → 0 | ~25s | Burst resilience — sudden traffic spikes |
+
+### Run the Tests
 
 ```bash
-# Fire 10 rapid requests and watch for 429s
-for i in $(seq 1 10); do
-  curl -s -o /dev/null -w "%{http_code}\n" \
-    -H "X-Client-Id: test-user" \
-    http://localhost:8080/api/login
-done
+# Start the stack
+docker compose up -d
+
+# Run Check API mode test
+k6 run k6/check-api-test.js
+
+# Run Proxy mode test
+k6 run k6/proxy-test.js
+
+# Override the target URL
+k6 run -e BASE_URL=http://your-host:8080 k6/check-api-test.js
 ```
 
-### Check API Mode
+### Custom Metrics
 
-```bash
-curl -X POST http://localhost:8080/check \
-  -H "Content-Type: application/json" \
-  -d '{"client_id": "user-1", "route": "/api/login"}'
+In addition to k6's built-in metrics, the tests track:
+
+| Metric | Type | Description |
+|---|---|---|
+| `rate_limited` | Rate | Percentage of requests that received 429 |
+| `rate_limited_count` | Counter | Total number of rate-limited responses |
+| `allowed_count` | Counter | Total number of allowed responses |
+| `check_latency` / `proxy_latency` | Trend | Per-mode request duration tracking |
+
+---
+
+## Architecture
+
+```
+Limitry/
+├── cmd/
+│   └── gateway/
+│       └── main.go                    # Entrypoint — loads config, wires up mode handler
+├── internal/
+│   ├── config/
+│   │   └── config.go                  # YAML config loader & validator
+│   ├── limiter/
+│   │   ├── limiter.go                 # Engine — Redis connection, routing to algorithms
+│   │   ├── tokenbucket.go             # Token Bucket via atomic Lua script
+│   │   └── sliding_window_counter.go  # Sliding Window Counter via atomic Lua script
+│   ├── proxy/
+│   │   └── proxy.go                   # Reverse proxy mode handler
+│   ├── checkapi/
+│   │   └── checkapi.go                # Standalone check API handler (POST /check)
+│   └── telemetry/
+│       ├── tracing.go                 # OpenTelemetry tracing setup
+│       ├── metrics.go                 # Prometheus metrics definitions and server
+│       ├── logging.go                 # Zerolog structured logging initialization
+│       └── resource.go                # Telemetry resource attributes
+├── k6/                                # k6 load & performance tests
+│   ├── check-api-test.js              # Load test for Check API mode
+│   └── proxy-test.js                  # Load test for Proxy mode
+├── k8s/                               # Kubernetes manifests (Kustomize)
+│   ├── kustomization.yaml
+│   ├── namespace.yaml
+│   ├── limitry/                       # Limitry Deployment, Service, ConfigMap
+│   ├── redis/                         # Redis Deployment, Service
+│   ├── otel-collector/                # OTel Collector Deployment, Service, ConfigMap
+│   ├── jaeger/                        # Jaeger Deployment, Service
+│   ├── prometheus/                    # Prometheus Deployment, Service, ConfigMap
+│   └── grafana/                       # Grafana Deployment, Service, ConfigMap
+├── docker/
+│   ├── grafana/                       # Pre-configured Grafana dashboard and datasources
+│   ├── otel-collector.yaml            # Configuration for OpenTelemetry Collector
+│   └── prometheus.yaml                # Scrape configuration for Prometheus
+├── Dockerfile                         # Multi-stage build
+├── docker-compose.yaml                # Full local dev stack
+├── go.mod
+└── config.yaml                        # Rate-limiting configuration
 ```
 
 ---
