@@ -32,7 +32,7 @@ Most rate limiters are either too simple (in-memory, single-instance) or too com
 - **Drop-in protection** — runs as a transparent reverse proxy or a standalone decision API
 - **Truly distributed** — Redis-backed state means every instance agrees on rate limits
 - **No race conditions** — atomic Lua scripts guarantee correctness under high concurrency
-- **Battle-tested** — k6 load tested with 94K+ requests across smoke, load, and spike scenarios — zero failures
+- **Battle-tested** — k6 load tested with 180K+ requests across smoke, load, and spike scenarios — zero failures
 
 ```
  Client → [ Limitry ] → Your Backend
