@@ -19,7 +19,7 @@
 
 <p align="center">
   <sub>
-    <b>p95 latency: 5ms</b> (Check API) · <b>34ms</b> (Proxy) · <b>~650 req/s</b> per instance · <b>100 concurrent users</b> spike-tested
+    <b>p95 latency: 5ms</b> (Check API) · <b>34ms</b> (Proxy) · <b>100 concurrent users</b> spike-tested · <b>0% error rate</b>
   </sub>
 </p>
 
@@ -32,7 +32,7 @@ Most rate limiters are either too simple (in-memory, single-instance) or too com
 - **Drop-in protection** — runs as a transparent reverse proxy or a standalone decision API
 - **Truly distributed** — Redis-backed state means every instance agrees on rate limits
 - **No race conditions** — atomic Lua scripts guarantee correctness under high concurrency
-- **Battle-tested** — k6 load tested with smoke, load, and spike scenarios up to 100 concurrent VUs
+- **Battle-tested** — k6 load tested with 94K+ requests across smoke, load, and spike scenarios — zero failures
 
 ```
  Client → [ Limitry ] → Your Backend
@@ -53,7 +53,6 @@ Limitry is load-tested with [k6](https://k6.io/) across three scenarios: smoke (
 | **p95 Latency** | 5.46ms |
 | **p99 Latency** | 9.17ms |
 | **Avg Latency** | 3.06ms |
-| **Throughput** | ~649 req/s |
 | **Error Rate** | 0.00% |
 | **Total Requests** | 93,918 |
 | **Rate-Limited (429)** | 66.35% |
@@ -65,7 +64,6 @@ Limitry is load-tested with [k6](https://k6.io/) across three scenarios: smoke (
 | **p95 Latency** | 34.27ms |
 | **p99 Latency** | 85.79ms |
 | **Avg Latency** | 8.12ms |
-| **Throughput** | ~616 req/s |
 | **Error Rate** | 0.00% |
 | **Total Requests** | 89,322 |
 | **Rate-Limited (429)** | 69.08% |
