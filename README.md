@@ -5,7 +5,7 @@
 </h1>
 
 <p align="center">
-  <b>A production-grade distributed rate limiter written in Go</b><br>
+  <b>A distributed rate limiter built for production workloads</b><br>
   <sub>Redis-backed · Dual-mode · Atomic Lua scripts · Per-route configuration · Kubernetes-ready</sub>
 </p>
 
